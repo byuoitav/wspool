@@ -2,16 +2,14 @@ package wspool
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-type NewConnectionFunc func(context.Context) (net.Conn, error)
+type NewConnectionFunc func(context.Context) (*websocket.Conn, error)
 type Work func(*websocket.Conn) error
 
 type Pool struct {
@@ -40,7 +38,7 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 
 			closeWs := func() {
 				if ws != nil {
-					closeWebsocket(ctx, ws)
+					closeWebsocket(ws, p.Logger)
 					ws = nil
 				}
 			}
@@ -58,10 +56,8 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 							p.Logger.Infof("Opening new connection")
 						}
 
-						ws, err := p.NewConnection(req.ctx)
-						if ws != nil {
-							fmt.Print("WS created")
-						}
+						var err error
+						ws, err = p.NewConnection(req.ctx)
 						if err != nil {
 							req.resp <- fmt.Errorf("failed to open new connection: %w", err)
 							continue
@@ -78,19 +74,13 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 
 					// the buffer is cleared after each message (according to Gorilla docs)
 					// do the work!
-					// err := req.work(ws)
-					// req.resp <- err
-
-					bytes, err := req.work(ws, req.command)
-
-					req.resp <- response{response: bytes, err: err}
+					err := req.work(ws)
+					req.resp <- err
 
 					// close the connection if necessary
-					var nerr net.Error
-					if errors.As(err, &nerr) && (!nerr.Temporary() || nerr.Timeout()) {
-						// if it was a timeout error, close the connection
+					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 						if p.Logger != nil {
-							p.Logger.Warnf("closing connection due to non-temporary or timeout error: %s", err.Error())
+							p.Logger.Warnf("closing connection due to bad websocket: %s", err.Error())
 						}
 						closeWs()
 						continue
@@ -109,10 +99,7 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 						p.Logger.Infof("Closing connection")
 					}
 
-					err := closeWebsocket(ctx, ws)
-					if err != nil {
-						p.Logger.Warnf("closing connection due to non-temporary or timeout error: %s", err.Error())
-					}
+					closeWs()
 				}
 			}
 		}()
