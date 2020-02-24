@@ -74,6 +74,7 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 
 					// the buffer is cleared after each message (according to Gorilla docs)
 					// do the work!
+
 					err := req.work(ws)
 					req.resp <- err
 
@@ -90,8 +91,8 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 					if !timer.Stop() {
 						<-timer.C
 					}
-					timer.Reset(p.TTL)
 
+					timer.Reset(p.TTL)
 					// delay
 					time.Sleep(p.Delay)
 				case <-timer.C:
@@ -100,6 +101,11 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 					}
 
 					closeWs()
+
+					timer.Reset(p.TTL)
+					continue
+				default:
+					time.Sleep(100 * time.Millisecond)
 				}
 			}
 		}()
