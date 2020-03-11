@@ -19,5 +19,4 @@ func closeWebsocket(ws *websocket.Conn, log Logger) {
 			log.Warnf("failed to close websocket: %s", err.Error())
 		}
 	}
-
 }

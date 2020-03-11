@@ -35,6 +35,7 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 		go func() {
 			var ws *websocket.Conn
 			timer := time.NewTimer(p.TTL)
+			drained := false
 
 			closeWs := func() {
 				if ws != nil {
@@ -83,29 +84,29 @@ func (p *Pool) Do(ctx context.Context, work Work) error {
 						if p.Logger != nil {
 							p.Logger.Warnf("closing connection due to bad websocket: %s", err.Error())
 						}
+
 						closeWs()
 						continue
 					}
 
 					// reset timer since we did something
-					if !timer.Stop() {
+					if !timer.Stop() && !drained {
 						<-timer.C
 					}
 
 					timer.Reset(p.TTL)
+					drained = false
+
 					// delay
 					time.Sleep(p.Delay)
 				case <-timer.C:
+					drained = true
+
 					if p.Logger != nil {
 						p.Logger.Infof("Closing connection")
 					}
 
 					closeWs()
-
-					timer.Reset(p.TTL)
-					continue
-				default:
-					time.Sleep(100 * time.Millisecond)
 				}
 			}
 		}()
